@@ -18,7 +18,7 @@ Card 3: 「隨時取消 (Cancel anytime)」 — 月訂閱制，不想用隨時�
 
 Footer with copyright 「© 2026 Flight Price Notifier」.
 
-Authentication using Lovable's built-in Supabase-style auth (use whatever auth backend Lovable provides by default — Lovable Cloud is fine for this v1; we'll swap to a user-owned Supabase project in a later step):
+Authentication using Supabase Auth (the project owner's own Supabase project):
 
 Sign Up page with email + password
 
@@ -47,16 +47,6 @@ Mobile responsive
 Tasteful subtle animations (fade-in on scroll is fine; don't overdo it)
 
 Out of scope for this v1: route-subscription form, target-price input, fare display, payment, custom database tables (do NOT create a subscriptions or profiles table — only use Supabase's default auth.users). Those come in later milestones. Stick to landing page + auth + placeholder dashboard.
-
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/c4121e27-8601-4635-93b2-8ca68146e6fc).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
 ## Development
 

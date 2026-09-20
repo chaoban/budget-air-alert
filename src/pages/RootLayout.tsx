@@ -9,7 +9,6 @@ import {
   useRouteError,
 } from "react-router";
 
-import { reportLovableError } from "@/lib/lovable-error-reporting";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -41,7 +40,6 @@ export function ErrorComponent() {
 
   useEffect(() => {
     console.error(error);
-    reportLovableError(error, { boundary: "router_root_error_component" });
   }, [error]);
 
   return (
