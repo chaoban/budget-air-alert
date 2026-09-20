@@ -5,12 +5,14 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Flight Price Notifier design system — single dark violet theme.
- * All colors in oklch. Components consume semantic tokens only.
+ * Flight Price Notifier design system — "sumi-e autumn".
+ * Rice paper, ink, sepia washes and persimmon-leaf watercolor, with a vermilion seal.
+ * Components consume semantic tokens only.
  */
 
 @theme inline {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif;
+  --font-serif: "Noto Serif TC", "Songti TC", "PMingLiU", ui-serif, Georgia, serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -27,6 +29,10 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-glow: var(--primary-glow);
+  --color-seal: var(--seal);
+  --color-seal-foreground: var(--seal-foreground);
+  --color-ink: var(--ink);
+  --color-sepia: var(--sepia);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -52,8 +58,8 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --shadow-glow: 0 0 60px -12px var(--primary-glow);
-  --shadow-card: 0 1px 0 0 oklch(1 0 0 / 4%) inset, 0 12px 40px -20px oklch(0 0 0 / 60%);
+  --shadow-glow: 0 10px 30px -14px var(--primary-glow);
+  --shadow-card: 0 1px 0 0 oklch(1 0 0 / 55%) inset, 0 18px 40px -28px oklch(0.35 0.05 55 / 45%);
   --animate-fade-up: fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-pulse-soft: pulse-soft 3s ease-in-out infinite;
 
@@ -79,40 +85,48 @@
 }
 
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.13 0.012 285);
-  --foreground: oklch(0.96 0.005 285);
-  --card: oklch(0.17 0.014 285);
-  --card-foreground: oklch(0.96 0.005 285);
-  --popover: oklch(0.17 0.014 285);
-  --popover-foreground: oklch(0.96 0.005 285);
-  --primary: oklch(0.64 0.21 295);
-  --primary-foreground: oklch(0.99 0 0);
-  --primary-glow: oklch(0.7 0.2 300 / 55%);
-  --secondary: oklch(0.22 0.016 285);
-  --secondary-foreground: oklch(0.96 0.005 285);
-  --muted: oklch(0.21 0.014 285);
-  --muted-foreground: oklch(0.68 0.015 285);
-  --accent: oklch(0.26 0.04 295);
-  --accent-foreground: oklch(0.96 0.005 285);
-  --destructive: oklch(0.6 0.22 25);
-  --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.64 0.21 295);
-  --chart-1: oklch(0.64 0.21 295);
-  --chart-2: oklch(0.7 0.15 200);
-  --chart-3: oklch(0.75 0.17 80);
-  --chart-4: oklch(0.65 0.2 340);
-  --chart-5: oklch(0.7 0.16 150);
-  --sidebar: oklch(0.15 0.012 285);
-  --sidebar-foreground: oklch(0.96 0.005 285);
-  --sidebar-primary: oklch(0.64 0.21 295);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.22 0.016 285);
-  --sidebar-accent-foreground: oklch(0.96 0.005 285);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.64 0.21 295);
+  --radius: 0.5rem;
+  /* paper */
+  --background: #f5ecdc;
+  --foreground: #2a211b;
+  --card: #fbf5ea;
+  --card-foreground: #2a211b;
+  --popover: #fbf5ea;
+  --popover-foreground: #2a211b;
+  /* persimmon leaf */
+  --primary: #bf4f1f;
+  --primary-foreground: #fbf5ea;
+  --primary-glow: rgb(191 79 31 / 45%);
+  --secondary: #ecdcc4;
+  --secondary-foreground: #2a211b;
+  --muted: #efe2cd;
+  --muted-foreground: #6f5645;
+  /* pale ochre wash */
+  --accent: #f3dcc2;
+  --accent-foreground: #7a3514;
+  --destructive: #a8302a;
+  --destructive-foreground: #fbf5ea;
+  --border: rgb(122 86 58 / 22%);
+  --input: rgb(122 86 58 / 32%);
+  --ring: #bf4f1f;
+  /* brush + seal */
+  --ink: #2a211b;
+  --sepia: #985d31;
+  --seal: #b3322b;
+  --seal-foreground: #fbf5ea;
+  --chart-1: #bf4f1f;
+  --chart-2: #985d31;
+  --chart-3: #e8934f;
+  --chart-4: #b3322b;
+  --chart-5: #6f7b5a;
+  --sidebar: #f0e4d0;
+  --sidebar-foreground: #2a211b;
+  --sidebar-primary: #bf4f1f;
+  --sidebar-primary-foreground: #fbf5ea;
+  --sidebar-accent: #ecdcc4;
+  --sidebar-accent-foreground: #2a211b;
+  --sidebar-border: rgb(122 86 58 / 22%);
+  --sidebar-ring: #bf4f1f;
 }
 
 @layer base {
@@ -121,7 +135,7 @@
   }
 
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {
@@ -130,27 +144,39 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+
+  /* Headings are set in a brush-adjacent serif; body stays sans for legibility. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+    letter-spacing: 0.01em;
+  }
+
+  ::selection {
+    background: rgb(232 147 79 / 35%);
+  }
 }
 
-/* Radial violet aura used behind the hero and auth card. */
+/* Watercolor washes: sepia bleed from the left, persimmon bloom top-right (as in the reference painting). */
 @utility bg-aura {
   background-image:
-    radial-gradient(60% 50% at 50% 0%, oklch(0.5 0.2 295 / 35%), transparent 70%),
-    radial-gradient(40% 40% at 80% 20%, oklch(0.6 0.18 320 / 15%), transparent 70%);
+    radial-gradient(38% 55% at 4% 30%, rgb(152 93 49 / 16%), transparent 70%),
+    radial-gradient(45% 40% at 92% 6%, rgb(232 121 58 / 16%), transparent 72%),
+    radial-gradient(60% 35% at 50% 100%, rgb(221 187 154 / 22%), transparent 70%);
 }
 
-/* Faint grid overlay. */
+/* Rice-paper fibre texture (replaces the old grid). */
 @utility bg-grid {
-  background-image:
-    linear-gradient(oklch(1 0 0 / 4%) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(1 0 0 / 4%) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 30%, transparent 100%);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9 0.35' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.32 0 0 0 0 0.2 0 0 0 0.9 -0.35'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+  background-size: 220px 220px;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
 }
 
-/* Gradient text for hero headline. */
+/* Hero headline: ink that thins into sepia, like a loaded brush running dry. */
 @utility text-gradient-primary {
-  background-image: linear-gradient(120deg, var(--foreground) 0%, oklch(0.8 0.14 295) 60%, var(--primary) 100%);
+  background-image: linear-gradient(100deg, var(--ink) 20%, #5b3a24 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

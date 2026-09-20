@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FeatureCard } from "@/components/FeatureCard";
 import { FadeIn } from "@/components/FadeIn";
+import { InkBranch, InkLeaf } from "@/components/InkBranch";
 import { usePageMeta } from "@/hooks/usePageMeta";
 
 const features = [
@@ -45,6 +46,7 @@ export function Landing() {
         {/* Hero */}
         <section className="relative overflow-hidden bg-aura">
           <div className="pointer-events-none absolute inset-0 bg-grid" aria-hidden />
+          <InkBranch className="absolute right-0 top-0 w-[78%] max-w-[560px] opacity-30 sm:w-[46%] sm:opacity-95 lg:w-[40%]" />
           <div className="relative mx-auto max-w-6xl px-5 pb-24 pt-24 text-center sm:pt-32">
             <div className="animate-fade-up">
               <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-accent/60 px-3.5 py-1.5 text-xs font-medium text-foreground">
@@ -107,6 +109,8 @@ export function Landing() {
         <section className="mx-auto max-w-6xl px-5 pb-24">
           <FadeIn>
             <div className="relative overflow-hidden rounded-3xl border bg-card px-8 py-14 text-center shadow-card bg-aura">
+              <InkLeaf className="absolute left-6 top-6 w-7 rotate-[200deg] sm:left-10 sm:w-9" />
+              <InkLeaf className="absolute bottom-7 right-8 w-5 rotate-[140deg] sm:right-14" color="#f0a06a" />
               <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">準備好用預算內的價格飛了嗎？</h2>
               <p className="mx-auto mt-3 max-w-md text-muted-foreground">
                 建立帳號，下一個里程碑就能開始追蹤你的航線。
