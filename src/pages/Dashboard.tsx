@@ -1,27 +1,19 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouteLoaderData } from "react-router";
+import type { User } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { LogOut, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/BrandMark";
 import { SiteFooter } from "@/components/SiteFooter";
+import { usePageMeta } from "@/hooks/usePageMeta";
 
-export const Route = createFileRoute("/_authenticated/app")({
-  head: () => ({
-    meta: [
-      { title: "儀表板 / Dashboard — Flight Price Notifier" },
-      { name: "description", content: "Your Flight Price Notifier dashboard." },
-      { property: "og:title", content: "儀表板 / Dashboard — Flight Price Notifier" },
-      { property: "og:description", content: "Your Flight Price Notifier dashboard." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: AppShell,
-});
-
-function AppShell() {
-  const { user } = Route.useRouteContext();
+export function Dashboard() {
+  usePageMeta({
+    title: "儀表板 / Dashboard — Flight Price Notifier",
+    description: "Your Flight Price Notifier dashboard.",
+  });
+  const { user } = useRouteLoaderData("authenticated") as { user: User };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -29,7 +21,7 @@ function AppShell() {
     await queryClient.cancelQueries();
     queryClient.clear();
     await supabase.auth.signOut();
-    navigate({ to: "/auth", search: { mode: "signin" }, replace: true });
+    navigate("/sign-in", { replace: true });
   }
 
   return (

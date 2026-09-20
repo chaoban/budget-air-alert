@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/BrandMark";
@@ -20,7 +20,7 @@ export function SiteHeader() {
           </Button>
         ) : (
           <Button asChild>
-            <Link to="/auth" search={{ mode: "signin" }}>
+            <Link to="/sign-in">
               Sign in / 登入
             </Link>
           </Button>

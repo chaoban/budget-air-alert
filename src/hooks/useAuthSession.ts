@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Client-side session state for UI affordances (header buttons, greeting).
- * Route protection is handled by the _authenticated layout, not this hook.
+ * Route protection is handled by the /app route loader (src/router.tsx), not this hook.
  */
 export function useAuthSession() {
   const [session, setSession] = useState<Session | null>(null);

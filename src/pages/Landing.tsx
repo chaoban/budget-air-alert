@@ -1,30 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router";
 import { BellRing, Radar, XCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FeatureCard } from "@/components/FeatureCard";
 import { FadeIn } from "@/components/FadeIn";
-
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Flight Price Notifier — 機票降價通知" },
-      {
-        name: "description",
-        content: "設定航線與目標價，機票降價就通知你。Set a route and a target price — we email you when the fare drops.",
-      },
-      { property: "og:title", content: "Flight Price Notifier — 機票降價通知" },
-      {
-        property: "og:description",
-        content: "Watch popular routes from Taipei and get an email the moment the fare hits your budget.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: Index,
-});
+import { usePageMeta } from "@/hooks/usePageMeta";
 
 const features = [
   {
@@ -47,7 +28,15 @@ const features = [
   },
 ];
 
-function Index() {
+export function Landing() {
+  usePageMeta({
+    title: "Flight Price Notifier — 機票降價通知",
+    description:
+      "設定航線與目標價，機票降價就通知你。Set a route and a target price — we email you when the fare drops.",
+    ogDescription:
+      "Watch popular routes from Taipei and get an email the moment the fare hits your budget.",
+  });
+
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
@@ -86,7 +75,7 @@ function Index() {
               style={{ animationDelay: "300ms" }}
             >
               <Button asChild size="lg" className="h-12 px-7 text-base shadow-glow">
-                <Link to="/auth" search={{ mode: "signup" }}>
+                <Link to="/sign-up">
                   免費開始 / Get started <ArrowRight className="size-4" />
                 </Link>
               </Button>
@@ -123,7 +112,7 @@ function Index() {
                 建立帳號，下一個里程碑就能開始追蹤你的航線。
               </p>
               <Button asChild size="lg" className="mt-8 h-12 px-7 text-base shadow-glow">
-                <Link to="/auth" search={{ mode: "signup" }}>
+                <Link to="/sign-up">
                   建立帳號 / Sign up
                 </Link>
               </Button>

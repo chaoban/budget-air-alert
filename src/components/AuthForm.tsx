@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,7 +36,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
-      navigate({ to: "/app" });
+      navigate("/app");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Something went wrong";
       toast.error(message);
@@ -79,8 +79,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
       <p className="text-center text-sm text-muted-foreground">
         {isSignUp ? "已經有帳號？" : "還沒有帳號？"}{" "}
         <Link
-          to="/auth"
-          search={{ mode: isSignUp ? "signin" : "signup" }}
+          to={isSignUp ? "/sign-in" : "/sign-up"}
           className="font-medium text-foreground underline-offset-4 hover:underline"
         >
           {isSignUp ? "登入 / Sign in" : "註冊 / Sign up"}

@@ -60,11 +60,19 @@ Continue developing this project in the [Lovable editor](https://lovable.dev/pro
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+This is a plain **Vite + React SPA** (React Router for client-side routing, Supabase auth in the browser). There is no SSR or server runtime.
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+npm install
+npm run dev        # http://localhost:5173
+npm run build      # type-check + static build -> dist/
+npm run preview    # serve dist/ locally (with SPA fallback)
 ```
+
+Routes: `/` (landing), `/sign-in`, `/sign-up`, `/app` (requires sign-in). Legacy `/auth?mode=...` links redirect to the new routes.
+
+Environment variables (build time): `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
+
+## Deploy to Vercel
+
+Import the repo in Vercel (framework preset: Vite). `vercel.json` sets the build command, the `dist` output directory and a catch-all rewrite to `/index.html`, so deep links such as `/app` resolve client-side. Add the `VITE_SUPABASE_*` variables in the Vercel project settings if you don't rely on the committed `.env`.
