@@ -4,6 +4,8 @@ import { RootLayout, NotFoundComponent, ErrorComponent } from "@/pages/RootLayou
 import { Landing } from "@/pages/Landing";
 import { AuthPage } from "@/pages/Auth";
 import { Dashboard } from "@/pages/Dashboard";
+import { ForgotPasswordPage } from "@/pages/ForgotPassword";
+import { ResetPasswordPage } from "@/pages/ResetPassword";
 
 /** Guard for authenticated routes: redirect to /sign-in when there is no user. */
 async function requireUser() {
@@ -26,6 +28,8 @@ export const router = createBrowserRouter([
       { path: "/", element: <Landing /> },
       { path: "/sign-in", element: <AuthPage mode="signin" /> },
       { path: "/sign-up", element: <AuthPage mode="signup" /> },
+      { path: "/forgot-password", element: <ForgotPasswordPage /> },
+      { path: "/reset-password", element: <ResetPasswordPage /> },
       { path: "/auth", loader: legacyAuthRedirect },
       { id: "authenticated", path: "/app", loader: requireUser, element: <Dashboard /> },
       { path: "*", element: <NotFoundComponent /> },

@@ -27,6 +27,15 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
           options: { emailRedirectTo: window.location.origin },
         });
         if (error) throw error;
+        // Supabase answers a sign-up for an existing email with a fake success and sends no
+        // email (anti-enumeration). The tell-tale sign is a user with no identities.
+        if (data.user && data.user.identities?.length === 0) {
+          toast.info("這個 email 已經註冊過了，請直接登入；忘記密碼可以按「忘記密碼」重設。", {
+            duration: 8000,
+          });
+          navigate("/sign-in");
+          return;
+        }
         if (!data.session) {
           toast.info("請到信箱完成確認後再登入 / Check your email to confirm.");
           return;
@@ -60,7 +69,17 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="password">密碼 / Password</Label>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="password">密碼 / Password</Label>
+          {!isSignUp && (
+            <Link
+              to="/forgot-password"
+              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              忘記密碼？
+            </Link>
+          )}
+        </div>
         <Input
           id="password"
           type="password"
