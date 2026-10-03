@@ -8,5 +8,10 @@
     "plan": "seoul",
     "origin": "TPE",
     "destination": "SEL"
+  },
+  {
+    "plan": "london",
+    "origin": "TPE",
+    "destination": "LON"
   }
 ]

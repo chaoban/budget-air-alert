@@ -57,9 +57,13 @@ def fetch_cheapest(origin, destination, month, token, currency):
     if not offers:
         return None
     # Real keys are departure_at / return_at (not depart_date / return_date).
-    best = min(offers.values(), key=lambda o: o["price"])
-    return {"price": best["price"], "currency": currency.upper(), "airline": best.get("airline"),
-            "depart_date": best.get("departure_at"), "return_date": best.get("return_at")}
+    # data[<DEST>] is keyed by number of transfers ("0" = direct, "1" = one stop, ...).
+    stops, best = min(offers.items(), key=lambda kv: kv[1]["price"])
+    out = {"price": best["price"], "currency": currency.upper(), "airline": best.get("airline"),
+           "depart_date": best.get("departure_at"), "return_date": best.get("return_at")}
+    if str(stops).isdigit():
+        out["transfers"] = int(stops)
+    return out
 
 
 def _safe_fetch(origin, destination, month, token, currency):
@@ -110,6 +114,8 @@ def handler(event, context):
                 "target_price": int(tp),
                 "cheapest": {"price": tw["price"], "currency": "TWD", "airline": tw["airline"],
                              "depart_date": tw["depart_date"], "return_date": tw["return_date"]}}
+        if "transfers" in tw:
+            body["cheapest"]["transfers"] = tw["transfers"]
         if us:
             body["cheapest_usd"] = {"price": us["price"], "currency": "USD", "airline": us["airline"],
                                     "depart_date": us["depart_date"], "return_date": us["return_date"]}

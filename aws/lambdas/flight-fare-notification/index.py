@@ -21,10 +21,15 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 UA = "Mozilla/5.0 (compatible; flight-notifier/1.0)"
-CITY = {"TPE": "台北", "TYO": "東京", "SEL": "首爾"}
+CITY = {"TPE": "台北", "TYO": "東京", "SEL": "首爾", "LON": "倫敦"}
 AIRLINE = {"GK": "捷星日本", "IT": "台灣虎航", "MM": "樂桃航空", "JX": "星宇航空", "CI": "中華航空",
            "BR": "長榮航空", "JL": "日本航空", "NH": "全日空", "ZE": "易斯達航空", "7C": "濟州航空",
-           "TW": "德威航空", "LJ": "真航空", "KE": "大韓航空", "OZ": "韓亞航空", "TR": "酷航"}
+           "TW": "德威航空", "LJ": "真航空", "KE": "大韓航空", "OZ": "韓亞航空", "TR": "酷航",
+           "CX": "國泰航空", "TK": "土耳其航空", "EK": "阿聯酋航空", "QR": "卡達航空", "EY": "阿提哈德航空",
+           "SQ": "新加坡航空", "TG": "泰國航空", "VN": "越南航空", "MH": "馬來西亞航空", "KL": "荷蘭皇家航空",
+           "LH": "漢莎航空", "BA": "英國航空", "AF": "法國航空", "AY": "芬蘭航空", "ET": "衣索比亞航空",
+           "CA": "中國國際航空", "MU": "東方航空", "CZ": "南方航空", "HU": "海南航空", "ZH": "深圳航空",
+           "MF": "廈門航空", "3U": "四川航空", "FM": "上海航空", "HX": "香港航空", "UO": "香港快運"}
 SITE_URL = os.environ.get("SITE_URL", "https://budget-air-alert.vercel.app/app")
 LOCK_SK = "#lock"  # per-(email, route) claim row in notification_history; real rows start with "20.."
 LOCK_SECONDS = 120
@@ -86,6 +91,13 @@ def subject(fare):
     return "✈️ %s → %s 降價通知！NT$%s 已達標" % (oc, dc, format(int(fare["cheapest"]["price"]), ","))
 
 
+def _stops(c):
+    n = c.get("transfers")
+    if n is None:
+        return ""
+    return "直飛" if n == 0 else "轉機 %d 次" % n
+
+
 def _airline(code):
     return "%s（%s）" % (AIRLINE[code], code) if code in AIRLINE else (code or "—")
 
@@ -104,13 +116,14 @@ def render_html(fare, target_price, marker=None, usd_price=None):
         '<h1 style="margin:8px 0 16px;font-size:20px;">%s → %s 已低於你的目標價</h1>'
         '<p style="margin:0;font-size:32px;font-weight:700;color:#bf4f1f;">NT$%s</p>%s'
         '<p style="margin:16px 0 0;font-size:14px;">你的目標價：NT$%s<br>'
-        '航空公司：%s<br>出發 %s · 回程 %s（%s ⇄ %s 來回）</p>'
+        '航空公司：%s%s<br>出發 %s · 回程 %s（%s ⇄ %s 來回）</p>'
         '<p style="margin:24px 0;"><a href="%s" style="display:inline-block;background:#bf4f1f;color:#ffffff;'
         'text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">立即訂購</a></p>'
         '<p style="margin:0;font-size:12px;color:#6f5645;">票價會隨時變動，以訂購頁面為準。'
         '你收到這封信是因為你在 Flight Price Notifier 追蹤了這條航線；'
         '<a href="%s" style="color:#985d31;">調整目標價</a>。</p></div>'
     ) % (oc, dc, price, usd, format(int(target_price), ","), html.escape(_airline(c.get("airline"))),
+         (" · " + _stops(c)) if _stops(c) else "",
          _md(c.get("depart_date")), _md(c.get("return_date")), o, d, url, html.escape(SITE_URL))
 
 
@@ -122,7 +135,7 @@ def render_text(fare, target_price, marker=None, usd_price=None):
     if usd_price is not None:
         lines.append("約 US$%s" % format(int(usd_price), ","))
     lines += ["你的目標價：NT$%s" % format(int(target_price), ","),
-              "航空公司：%s" % _airline(c.get("airline")),
+              "航空公司：%s%s" % (_airline(c.get("airline")), (" · " + _stops(c)) if _stops(c) else ""),
               "出發 %s · 回程 %s（%s ⇄ %s 來回）" % (_md(c.get("depart_date")), _md(c.get("return_date")), o, d),
               "", "立即訂購：" + booking_url(fare, marker), "",
               "票價會隨時變動，以訂購頁面為準。調整目標價：" + SITE_URL]

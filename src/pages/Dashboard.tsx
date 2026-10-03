@@ -97,7 +97,7 @@ export function Dashboard() {
           )}
 
           <div
-            className="animate-fade-up mt-8 grid gap-6 md:grid-cols-2"
+            className="animate-fade-up mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3"
             style={{ animationDelay: "100ms" }}
           >
             {PLANS.map((plan) => (

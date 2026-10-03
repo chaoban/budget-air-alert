@@ -13,7 +13,7 @@ const features = [
     icon: Radar,
     title: "盯緊熱門航線",
     subtitle: "Always-on route watching",
-    body: "持續監控台北出發的熱門航線（東京、首爾），自動抓最低票價。",
+    body: "持續監控台北出發的熱門航線（東京、首爾、倫敦），自動抓最低票價。",
   },
   {
     icon: BellRing,
@@ -51,7 +51,7 @@ export function Landing() {
             <div className="animate-fade-up">
               <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-accent/60 px-3.5 py-1.5 text-xs font-medium text-foreground">
                 <span className="size-1.5 rounded-full bg-primary animate-pulse-soft" />
-                台北出發 · 東京 / 首爾
+                台北出發 · 東京 / 首爾 / 倫敦
               </span>
             </div>
             <h1
@@ -91,7 +91,9 @@ export function Landing() {
         {/* Features */}
         <section id="features" className="mx-auto max-w-6xl px-5 py-24">
           <FadeIn className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">不用盯價，等通知就好</h2>
+            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              不用盯價，等通知就好
+            </h2>
             <p className="mt-4 text-muted-foreground">
               適合不在意哪天飛、只想在預算內出發的旅人。你設定，我們盯。
             </p>
@@ -110,15 +112,18 @@ export function Landing() {
           <FadeIn>
             <div className="relative overflow-hidden rounded-3xl border bg-card px-8 py-14 text-center shadow-card bg-aura">
               <InkLeaf className="absolute left-6 top-6 w-7 rotate-[200deg] sm:left-10 sm:w-9" />
-              <InkLeaf className="absolute bottom-7 right-8 w-5 rotate-[140deg] sm:right-14" color="#f0a06a" />
-              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">準備好用預算內的價格飛了嗎？</h2>
+              <InkLeaf
+                className="absolute bottom-7 right-8 w-5 rotate-[140deg] sm:right-14"
+                color="#f0a06a"
+              />
+              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                準備好用預算內的價格飛了嗎？
+              </h2>
               <p className="mx-auto mt-3 max-w-md text-muted-foreground">
                 建立帳號，下一個里程碑就能開始追蹤你的航線。
               </p>
               <Button asChild size="lg" className="mt-8 h-12 px-7 text-base shadow-glow">
-                <Link to="/sign-up">
-                  建立帳號 / Sign up
-                </Link>
+                <Link to="/sign-up">建立帳號 / Sign up</Link>
               </Button>
             </div>
           </FadeIn>

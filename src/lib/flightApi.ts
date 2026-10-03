@@ -6,7 +6,7 @@
 
 const API_BASE = (import.meta.env.VITE_FLIGHT_API_URL ?? "").replace(/\/+$/, "");
 
-export type PlanName = "tokyo" | "seoul";
+export type PlanName = "tokyo" | "seoul" | "london";
 
 export interface Subscription {
   email: string;
@@ -43,6 +43,13 @@ export const PLANS: Plan[] = [
     labelEn: "Taipei → Seoul",
     route: "TPE-SEL",
     referencePrice: 6400,
+  },
+  {
+    planName: "london",
+    label: "台北 ✈ 倫敦",
+    labelEn: "Taipei → London",
+    route: "TPE-LON",
+    referencePrice: 22600,
   },
 ];
 
