@@ -18,6 +18,7 @@ from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 
 UA = "Mozilla/5.0 (compatible; flight-notifier/1.0)"
 CITY = {"TPE": "台北", "TYO": "東京", "SEL": "首爾"}
@@ -25,6 +26,8 @@ AIRLINE = {"GK": "捷星日本", "IT": "台灣虎航", "MM": "樂桃航空", "JX
            "BR": "長榮航空", "JL": "日本航空", "NH": "全日空", "ZE": "易斯達航空", "7C": "濟州航空",
            "TW": "德威航空", "LJ": "真航空", "KE": "大韓航空", "OZ": "韓亞航空", "TR": "酷航"}
 SITE_URL = os.environ.get("SITE_URL", "https://budget-air-alert.vercel.app/app")
+LOCK_SK = "#lock"  # per-(email, route) claim row in notification_history; real rows start with "20.."
+LOCK_SECONDS = 120
 
 _sm = boto3.client("secretsmanager")
 _history = boto3.resource("dynamodb").Table("notification_history")
@@ -128,8 +131,28 @@ def render_text(fare, target_price, marker=None, usd_price=None):
 
 # ---------------------------------------------------------------- dedup + send
 
+def _claim(pk):
+    """Atomically claim (email, route) so concurrent invocations can't both pass the dedup check."""
+    now = int(time.time())
+    try:
+        _history.put_item(Item={"pk": pk, "sent_at": LOCK_SK, "lock_until": now + LOCK_SECONDS},
+                          ConditionExpression="attribute_not_exists(pk) OR lock_until < :now",
+                          ExpressionAttributeValues={":now": now})
+        return True
+    except ClientError as ex:
+        if ex.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
+def _release(pk):
+    _history.update_item(Key={"pk": pk, "sent_at": LOCK_SK}, UpdateExpression="SET lock_until = :z",
+                         ExpressionAttributeValues={":z": 0})
+
+
 def _should_send(pk, new_price):
-    q = _history.query(KeyConditionExpression=Key("pk").eq(pk), ScanIndexForward=False, Limit=1)
+    q = _history.query(KeyConditionExpression=Key("pk").eq(pk) & Key("sent_at").begins_with("2"),
+                       ScanIndexForward=False, Limit=1)
     if not q.get("Items"):
         return True, "first alert"
     last = q["Items"][0]
@@ -162,6 +185,16 @@ def process(msg):
     email, route = msg["email"], msg["route"]
     price = Decimal(str(msg["cheapest"]["price"]))
     pk = "%s#%s" % (email, route)
+    if not _claim(pk):
+        print("skipped (in-flight duplicate)", pk, "NT$%s" % price, "- another invocation holds the claim")
+        return
+    try:
+        _deliver(msg, email, route, price, pk)
+    finally:
+        _release(pk)
+
+
+def _deliver(msg, email, route, price, pk):
     ok, why = _should_send(pk, price)
     if not ok:
         print("skipped (deduped)", pk, "NT$%s" % price, "-", why)
