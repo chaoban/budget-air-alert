@@ -1,12 +1,21 @@
 import { useNavigate, useRouteLoaderData } from "react-router";
 import type { User } from "@supabase/supabase-js";
-import { useQueryClient } from "@tanstack/react-query";
-import { LogOut, Sparkles } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, LogOut } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/BrandMark";
+import { PlanCard } from "@/components/PlanCard";
 import { SiteFooter } from "@/components/SiteFooter";
 import { usePageMeta } from "@/hooks/usePageMeta";
+import {
+  PLANS,
+  formatTwd,
+  listSubscriptions,
+  saveSubscription,
+  type Subscription,
+} from "@/lib/flightApi";
 
 export function Dashboard() {
   usePageMeta({
@@ -16,6 +25,30 @@ export function Dashboard() {
   const { user } = useRouteLoaderData("authenticated") as { user: User };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // Email is the join key across Supabase auth and the DynamoDB subscriptions table.
+  const email = (user.email ?? "").toLowerCase();
+  const subscriptionsKey = ["subscriptions", email] as const;
+
+  const subscriptionsQuery = useQuery({
+    queryKey: subscriptionsKey,
+    queryFn: () => listSubscriptions(email),
+    enabled: Boolean(email),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: saveSubscription,
+    onSuccess: (saved) => {
+      queryClient.setQueryData<Subscription[]>(subscriptionsKey, (prev = []) => [
+        ...prev.filter((s) => s.route !== saved.route),
+        saved,
+      ]);
+      const plan = PLANS.find((p) => p.route === saved.route);
+      toast.success(`${plan?.label ?? saved.route} 追蹤中`, {
+        description: `目標價 ${formatTwd(saved.target_price)}，達標就寄信給你。`,
+      });
+    },
+    onError: (err: Error) => toast.error("儲存失敗", { description: err.message }),
+  });
 
   async function handleSignOut() {
     await queryClient.cancelQueries();
@@ -44,20 +77,53 @@ export function Dashboard() {
           <h1 className="animate-fade-up text-3xl font-semibold tracking-tight sm:text-4xl">
             Hi {user.email}
           </h1>
+          <p
+            className="animate-fade-up mt-3 max-w-2xl text-muted-foreground"
+            style={{ animationDelay: "60ms" }}
+          >
+            選一條航線、設定目標價。下個月的來回最低價一旦達標，我們就寄信到{" "}
+            <span className="font-medium text-foreground">{email}</span>。
+          </p>
+
+          {subscriptionsQuery.isError && (
+            <div className="mt-6 flex max-w-2xl items-center justify-between gap-4 rounded-xl border border-destructive/40 bg-card/80 px-5 py-4 text-sm">
+              <span className="text-destructive">
+                讀取訂閱狀態失敗：{(subscriptionsQuery.error as Error).message}
+              </span>
+              <Button variant="outline" size="sm" onClick={() => subscriptionsQuery.refetch()}>
+                重試
+              </Button>
+            </div>
+          )}
+
           <div
-            className="animate-fade-up mt-8 max-w-2xl rounded-2xl border border-dashed border-primary/40 bg-card/70 p-8 shadow-card"
+            className="animate-fade-up mt-8 grid gap-6 md:grid-cols-2"
             style={{ animationDelay: "100ms" }}
           >
-            <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-              <Sparkles className="size-5" />
-            </div>
-            <p className="text-lg font-medium leading-relaxed">
-              你的航線追蹤儀表板即將上線 — 下一個里程碑會加上訂閱航線的功能。
-            </p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Your dashboard is coming soon. Route-subscription will be added in the next milestone.
-            </p>
+            {PLANS.map((plan) => (
+              <PlanCard
+                key={plan.planName}
+                plan={plan}
+                subscription={subscriptionsQuery.data?.find((s) => s.route === plan.route)}
+                saving={
+                  saveMutation.isPending && saveMutation.variables?.plan_name === plan.planName
+                }
+                disabled={subscriptionsQuery.isPending}
+                onSubmit={(targetPrice) =>
+                  saveMutation.mutate({
+                    email,
+                    plan_name: plan.planName,
+                    target_price: targetPrice,
+                  })
+                }
+              />
+            ))}
           </div>
+          {subscriptionsQuery.isPending && (
+            <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> 讀取訂閱狀態中…
+            </p>
+          )}
         </div>
       </main>
 
