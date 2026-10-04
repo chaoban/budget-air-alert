@@ -142,6 +142,22 @@ with mock_aws():
     check(got == ["a@x.com", "g@x.com"], "only active + cancelled-in-grace enqueued (got %s)" % got)
     check(T.get_item(Key={"email": "old@x.com", "route": "TPE-SEL"})["Item"]["subscription_status"] == "expired", "grace-lapsed cancelled row flipped to expired")
     check("subscription_status" not in T.get_item(Key={"email": "legacy@x.com", "route": "TPE-SEL"})["Item"], "legacy row untouched (just not served)")
+    # simulate hook: one subscriber, simulated fare, simulated clock never persists an expiry
+    T.put_item(Item={"email": "g2@x.com", "route": "TPE-SEL", "target_price": Decimal(9000), "subscription_status": "cancelled",
+                     "current_period_end": (now + timedelta(days=5)).strftime(f)})
+    sim = {"origin": "TPE", "destination": "SEL", "route": "TPE-SEL", "simulate": {"email": "g2@x.com", "price_twd": 5000}}
+    par.handler(sim, None)
+    msgs = drain(qf)
+    check([m["email"] for m in msgs] == ["g2@x.com"] and msgs[0]["cheapest"]["price"] == 5000 and "cheapest_usd" not in msgs[0],
+          "simulate: only the named subscriber, simulated TWD fare, no USD")
+    later = (now + timedelta(days=5, seconds=1)).strftime(f)
+    par.handler(dict(sim, simulate={"email": "g2@x.com", "price_twd": 5000, "now": later}), None)
+    check(drain(qf) == [] and T.get_item(Key={"email": "g2@x.com", "route": "TPE-SEL"})["Item"]["subscription_status"] == "cancelled",
+          "simulate now past period end: not enqueued and row NOT flipped")
+    on_last = (now + timedelta(days=5) - timedelta(minutes=1)).strftime(f)
+    par.handler(dict(sim, simulate={"email": "g2@x.com", "price_twd": 5000, "now": on_last}), None)
+    check([m["email"] for m in drain(qf)] == ["g2@x.com"], "simulate now just before period end: still enqueued")
+    check(par.handler(dict(sim, simulate={"price_twd": 5000}), None)["ok"] is False, "simulate without email rejected")
 
     print("[ecpay_period]")
     per = load("flight-ecpay-period")

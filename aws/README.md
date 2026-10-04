@@ -62,7 +62,7 @@ The M2 functions share `m2/src/common.py` (CheckMacValue, ECPay host, time helpe
 
 ```bash
 cd aws/m2
-python3 build.py && python3 test/test_m2.py   # moto tests (38 checks), loads aws/m2/build/
+python3 build.py && python3 test/test_m2.py   # moto tests (42 checks), loads aws/m2/build/
 python3 build.py ../lambdas                    # refresh aws/lambdas/<function>/index.py
 ```
 
@@ -70,5 +70,13 @@ Redeploy a function: zip its `index.py` (`zip -j x.zip index.py`), upload to a *
 `lambda/m2/`, check the S3 ETag equals the local md5, then
 `aws lambda update-function-code --s3-bucket … --s3-key … --region us-east-1` (or update the CloudFormation
 stack's `S3Key` for save/list).
+
+Simulating a fare for one subscriber (direct invoke only; goes through the real paywall gate, dedup and Resend):
+
+```bash
+aws lambda invoke --function-name flight-parser --region us-east-1 out.json --payload \
+  '{"origin":"TPE","destination":"TYO","route":"TPE-TYO","simulate":{"email":"<you>","price_twd":5000}}'
+# add "now":"YYYY-MM-DDTHH:MM:SSZ" to evaluate the gate at another moment (never writes)
+```
 
 Dedup knobs on `flight-fare-notification`: `NOTIFY_FLOOR_HOURS=24`, `REALERT_PCT=20`, `REALERT_ABS_TWD=2000`.

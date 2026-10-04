@@ -5,6 +5,12 @@ supplementary), scan `subscriptions` for that route, and enqueue every subscribe
 target_price >= the TWD fare to `flight-fare-queue`.
 M2 paywall (grace-aware gate): serve `active`, and `cancelled` while current_period_end >= now; a cancelled row
 whose paid period has passed is lazily flipped to `expired`. pending_payment / expired / legacy rows are not served.
+
+Test hook (direct `aws lambda invoke` only - the wrapper never sends it):
+  {"origin": "TPE", "destination": "TYO", "route": "TPE-TYO",
+   "simulate": {"email": "<one subscriber>", "price_twd": 5000, "now": "2026-11-04T03:20:26Z"}}
+Only that subscriber is considered; `price_twd` replaces the live TWD fare (flight details stay real, USD dropped);
+`now` evaluates the gate at another moment and never writes (a lapsed grace is reported, not persisted).
 """
 import json
 import urllib.error
@@ -79,6 +85,25 @@ def _safe_fetch(origin, destination, month, token, currency):
     return None
 
 
+def _simulation(event):
+    """Validate the optional direct-invoke test hook (see module docstring)."""
+    sim = event.get("simulate")
+    if not sim:
+        return None
+    out = {"email": str(sim.get("email", "")).strip().lower()}
+    if "@" not in out["email"]:
+        raise ValueError("simulate.email is required")
+    if "price_twd" in sim:
+        p = int(sim["price_twd"])
+        if not 0 < p <= 1000000:
+            raise ValueError("simulate.price_twd out of range")
+        out["price_twd"] = p
+    if "now" in sim:
+        datetime.strptime(sim["now"], TS_FMT)
+        out["now"] = sim["now"]
+    return out
+
+
 def _subscribers(route):
     kwargs = {"FilterExpression": Attr("route").eq(route)}
     while True:
@@ -90,7 +115,7 @@ def _subscribers(route):
         kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
 
 
-def gate(it, now_s):
+def gate(it, now_s, write=True):
     """True if this subscriber is paid (or paid-through). Lazily retires grace-lapsed cancelled rows."""
     status = it.get("subscription_status")
     if status == "active":
@@ -99,6 +124,8 @@ def gate(it, now_s):
         end = str(it.get("current_period_end", ""))
         if end >= now_s:
             return True, "cancelled-in-grace until " + end
+        if not write:
+            return False, "grace ended %s (simulated now %s - not written)" % (end, now_s)
         try:
             _table.update_item(Key={"email": it["email"], "route": it["route"]},
                                UpdateExpression="SET subscription_status = :x, expired_at = :n, updated_at = :n",
@@ -117,6 +144,11 @@ def handler(event, context):
     destination = event["destination"]
     route = event.get("route") or "%s-%s" % (origin, destination)
     month = event.get("month") or next_month()
+    try:
+        sim = _simulation(event)
+    except (ValueError, TypeError) as ex:
+        print("bad simulate payload:", ex)
+        return {"ok": False, "error": str(ex)}
     token = _token()
 
     tw = _safe_fetch(origin, destination, month, token, "twd")
@@ -128,11 +160,18 @@ def handler(event, context):
         route, month, tw["price"], tw["airline"], tw["depart_date"], tw["return_date"],
         " / %s USD" % us["price"] if us else " / USD n/a"))
 
-    price = Decimal(str(tw["price"]))
     now_s = datetime.now(timezone.utc).strftime(TS_FMT)
+    if sim:
+        if "price_twd" in sim:
+            tw, us = dict(tw, price=sim["price_twd"]), None
+        now_s = sim.get("now", now_s)
+        print("SIMULATION for %s: fare NT$%s, gate evaluated at %s" % (sim["email"], tw["price"], now_s))
+    price = Decimal(str(tw["price"]))
     matched = skipped = gated = 0
     for it in _subscribers(route):
-        served, why = gate(it, now_s)
+        if sim and it["email"] != sim["email"]:
+            continue
+        served, why = gate(it, now_s, write=not (sim and "now" in sim))
         if not served:
             gated += 1
             print("gate skip", it["email"], route, "-", why)
