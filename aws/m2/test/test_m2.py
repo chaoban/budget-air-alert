@@ -104,6 +104,14 @@ with mock_aws():
     row = T.get_item(Key={"email": "me@example.com", "route": "TPE-TYO"})["Item"]
     check(r["body"] == "1|OK" and r["headers"]["Content-Type"].startswith("text/plain"), "real callback -> text/plain 1|OK")
     check(row["subscription_status"] == "active" and len(row["current_period_end"]) == 20 and row["current_period_end"].endswith("Z"), "row active, current_period_end fixed-width Z format")
+    exp_day = ret.add_period(datetime.now(timezone.utc).astimezone(ret.TPE_TZ), "M", 1).strftime("%Y/%m/%d")
+    check(row["current_period_end"].endswith("T15:59:59Z") and row["current_period_end_date"] == exp_day,
+          "paid through 23:59:59 Taipei on the due date (%s, %s)" % (row["current_period_end"], row["current_period_end_date"]))
+    pe = lambda s, pt="M", n=1: ret.ts(ret.period_end(ret.parse_ts(s), pt, n))
+    check(pe("2026-10-04T03:20:25Z") == "2026-11-04T15:59:59Z", "10/04 11:20 Taipei payment -> 11/04 23:59:59 Taipei")
+    check(pe("2026-01-30T19:00:00Z") == "2026-02-28T15:59:59Z", "Taipei 1/31 03:00 -> 2/28 23:59:59 (Taipei calendar, not UTC 1/30)")
+    check(pe("2026-11-04T15:59:59Z") == "2026-12-04T15:59:59Z", "renewal from a 23:59:59 end stays on 23:59:59")
+    check(pe("2026-10-04T17:00:00Z", "D", 1) == "2026-10-06T15:59:59Z", "daily period uses the Taipei date (10/5 01:00 -> 10/6 23:59:59)")
     r = ret.handler(form_event(signed(cb)), None)
     msgs = drain(qs)
     check(r["body"] == "1|OK" and len(msgs) == 1 and msgs[0]["event_type"] == "welcome", "resend of same callback -> no second welcome")
@@ -158,6 +166,13 @@ with mock_aws():
     par.handler(dict(sim, simulate={"email": "g2@x.com", "price_twd": 5000, "now": on_last}), None)
     check([m["email"] for m in drain(qf)] == ["g2@x.com"], "simulate now just before period end: still enqueued")
     check(par.handler(dict(sim, simulate={"price_twd": 5000}), None)["ok"] is False, "simulate without email rejected")
+    T.put_item(Item={"email": "g3@x.com", "route": "TPE-SEL", "target_price": Decimal(9000), "subscription_status": "cancelled",
+                     "current_period_end": "2026-11-04T15:59:59Z"})
+    s3 = dict(sim, simulate={"email": "g3@x.com", "price_twd": 5000, "now": "2026-11-04T15:59:59Z"})
+    par.handler(s3, None)
+    check(len(drain(qf)) == 1, "11/04 23:59:59 Taipei: still served")
+    par.handler(dict(s3, simulate=dict(s3["simulate"], now="2026-11-04T16:00:00Z")), None)
+    check(drain(qf) == [], "11/05 00:00:00 Taipei: no longer served")
 
     print("[ecpay_period]")
     per = load("flight-ecpay-period")
@@ -168,7 +183,7 @@ with mock_aws():
           "FirstAuthAmount": "300", "TotalSuccessTimes": "2", "CustomField1": "r@x.com", "CustomField2": "TPE-LON", "CustomField3": "london", "CustomField4": ""}
     per.handler(form_event(signed(pc)), None)
     e1 = T.get_item(Key={"email": "r@x.com", "route": "TPE-LON"})["Item"]["current_period_end"]
-    check(e1 > (now + timedelta(days=27)).strftime(f), "renewal extends current_period_end by a month (%s)" % e1)
+    check(e1 > (now + timedelta(days=27)).strftime(f) and e1.endswith("T15:59:59Z"), "renewal extends current_period_end by a month, to 23:59:59 Taipei (%s)" % e1)
     per.handler(form_event(signed(pc)), None)
     check(T.get_item(Key={"email": "r@x.com", "route": "TPE-LON"})["Item"]["current_period_end"] == e1, "renewal resend does not extend twice")
     fail = dict(pc); fail["RtnCode"] = "10100248"; fail["RtnMsg"] = "拒絕交易"

@@ -45,7 +45,9 @@ pending_payment ──ReturnURL RtnCode=1──▶ active ──/cancel──▶
   `(event, email, route, MerchantTradeNo)` via a conditional claim row in `notification_history`
   (`pk = status#…`, `sent_at = #once`).
 
-Times are UTC strings `YYYY-MM-DDTHH:MM:SSZ` (compared as strings); `current_period_end_date` is the Taipei date.
+Times are UTC strings `YYYY-MM-DDTHH:MM:SSZ` (compared as strings). A paid period runs **through 23:59:59 Taipei
+on its due date** (`current_period_end` = `…T15:59:59Z`; calendar math on the Taipei date, e.g. 1/31 → 2/28);
+`current_period_end_date` is that Taipei date.
 
 ## Data, secrets, IAM
 
@@ -62,7 +64,7 @@ The M2 functions share `m2/src/common.py` (CheckMacValue, ECPay host, time helpe
 
 ```bash
 cd aws/m2
-python3 build.py && python3 test/test_m2.py   # moto tests (42 checks), loads aws/m2/build/
+python3 build.py && python3 test/test_m2.py   # moto tests (49 checks), loads aws/m2/build/
 python3 build.py ../lambdas                    # refresh aws/lambdas/<function>/index.py
 ```
 

@@ -47,7 +47,7 @@ def handler(event, context):
     if p.get("RtnCode") == "1":
         n = int(p.get("TotalSuccessTimes") or 0) or int(item.get("total_success_times", 1)) + 1
         base = max(now, parse_ts(item["current_period_end"])) if item.get("current_period_end") else now
-        end = ts(add_period(base, item.get("period_type", "M"), int(item.get("period_frequency", 1))))
+        end = ts(period_end(base, item.get("period_type", "M"), int(item.get("period_frequency", 1))))
         status = "active" if item.get("subscription_status") in ("active", "pending_payment", "expired") \
             else item.get("subscription_status")
         try:

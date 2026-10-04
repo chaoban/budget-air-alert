@@ -67,7 +67,7 @@ def handler(event, context):
                                 ExpressionAttributeValues={":x": "expired", ":n": ts(now)}, ReturnValues="ALL_NEW")
         return resp_json(200, {"ok": True, "subscription": to_json(out["Attributes"]), "ecpay": {"code": code, "msg": msg}})
 
-    end = item.get("current_period_end") or ts(add_period(now, "M", 1))  # migration fallback
+    end = item.get("current_period_end") or ts(period_end(now, "M", 1))  # migration fallback
     try:
         out = TABLE.update_item(
             Key=key,

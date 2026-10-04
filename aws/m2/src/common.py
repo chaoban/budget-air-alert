@@ -62,6 +62,13 @@ def add_period(dt, period_type="M", frequency=1):
     return dt.replace(year=y, month=m, day=min(dt.day, calendar.monthrange(y, m)[1]))
 
 
+def period_end(base, period_type="M", frequency=1):
+    """Paid-through moment: the Taipei calendar date one period after `base`, through 23:59:59 that day (UTC dt).
+    Calendar math runs on the Taipei date, so a 1/31 payment ends 2/28 23:59:59 (Taipei), never 3/1."""
+    local = add_period(base.astimezone(TPE_TZ), period_type, frequency)
+    return local.replace(hour=23, minute=59, second=59, microsecond=0).astimezone(timezone.utc)
+
+
 def tpe_date(ts_str):
     return parse_ts(ts_str).astimezone(TPE_TZ).strftime("%Y/%m/%d")
 

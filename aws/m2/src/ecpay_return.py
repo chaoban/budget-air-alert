@@ -40,7 +40,7 @@ def handler(event, context):
     now = utcnow()
     item = TABLE.get_item(Key={"email": email, "route": route}).get("Item") or {}
     pt, freq = item.get("period_type", "M"), int(item.get("period_frequency", 1))
-    end = ts(add_period(now, pt, freq))
+    end = ts(period_end(now, pt, freq))  # through 23:59:59 Taipei on the due date
     try:
         # idempotent on MerchantTradeNo: only the pending order that matches this trade-no is activated once
         TABLE.update_item(
