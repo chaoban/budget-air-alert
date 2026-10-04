@@ -1,4 +1,5 @@
-import { useNavigate, useRouteLoaderData } from "react-router";
+import { useEffect, useState } from "react";
+import { useNavigate, useRouteLoaderData, useSearchParams } from "react-router";
 import type { User } from "@supabase/supabase-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, LogOut } from "lucide-react";
@@ -11,11 +12,18 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { usePageMeta } from "@/hooks/usePageMeta";
 import {
   PLANS,
+  cancelSubscription,
   formatTwd,
+  goToCheckout,
   listSubscriptions,
   saveSubscription,
   type Subscription,
+  type SubscriptionList,
 } from "@/lib/flightApi";
+
+/** After ECPay sends the browser back, poll until the server-to-server ReturnURL activates the row. */
+const ACTIVATION_POLL_MS = 3000;
+const ACTIVATION_POLL_LIMIT_MS = 90_000;
 
 export function Dashboard() {
   usePageMeta({
@@ -25,29 +33,99 @@ export function Dashboard() {
   const { user } = useRouteLoaderData("authenticated") as { user: User };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  // Email is the join key across Supabase auth and the DynamoDB subscriptions table.
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The API reads the subscriber's email from the verified Supabase session token.
   const email = (user.email ?? "").toLowerCase();
   const subscriptionsKey = ["subscriptions", email] as const;
 
+  // Route we are waiting on after a successful checkout, plus when we started waiting.
+  const [awaiting, setAwaiting] = useState<{ route: string; since: number } | null>(null);
+
   const subscriptionsQuery = useQuery({
     queryKey: subscriptionsKey,
-    queryFn: () => listSubscriptions(email),
+    queryFn: listSubscriptions,
     enabled: Boolean(email),
+    refetchInterval: awaiting ? ACTIVATION_POLL_MS : false,
   });
+  const subscriptions = subscriptionsQuery.data?.subscriptions;
+  const monthlyPrice = subscriptionsQuery.data?.monthlyPrice ?? null;
+
+  // Handle ECPay's OrderResultURL redirect: /app?purchase=success|failed&route=TPE-XXX
+  useEffect(() => {
+    const purchase = searchParams.get("purchase");
+    if (!purchase) return;
+    const route = searchParams.get("route") ?? "";
+    const label = PLANS.find((p) => p.route === route)?.label ?? route;
+    if (purchase === "success") {
+      toast.success(`${label} 付款完成`, {
+        description: "正在確認綠界扣款結果，通常幾秒內就會啟用。",
+      });
+      if (route) setAwaiting({ route, since: Date.now() });
+    } else {
+      toast.error(`${label} 付款未完成`, {
+        description: "沒有扣款。可以再按一次「完成付款」重試。",
+      });
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("purchase");
+    next.delete("route");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // Stop polling once the awaited route is active, or after the time limit.
+  useEffect(() => {
+    if (!awaiting) return;
+    const row = subscriptions?.find((s) => s.route === awaiting.route);
+    if (row?.subscription_status === "active") {
+      const label = PLANS.find((p) => p.route === awaiting.route)?.label ?? awaiting.route;
+      toast.success(`${label} 訂閱已啟用`, {
+        description: "確認信已寄出，達標就會寄降價通知給你。",
+      });
+      setAwaiting(null);
+    } else if (Date.now() - awaiting.since > ACTIVATION_POLL_LIMIT_MS) {
+      toast.message("付款結果還在處理中", { description: "稍後重新整理頁面就會看到最新狀態。" });
+      setAwaiting(null);
+    }
+  }, [awaiting, subscriptions]);
+
+  function upsert(saved: Subscription) {
+    queryClient.setQueryData<SubscriptionList>(subscriptionsKey, (prev) => ({
+      monthlyPrice: prev?.monthlyPrice ?? null,
+      subscriptions: [...(prev?.subscriptions ?? []).filter((s) => s.route !== saved.route), saved],
+    }));
+  }
 
   const saveMutation = useMutation({
     mutationFn: saveSubscription,
-    onSuccess: (saved) => {
-      queryClient.setQueryData<Subscription[]>(subscriptionsKey, (prev = []) => [
-        ...prev.filter((s) => s.route !== saved.route),
-        saved,
-      ]);
+    onSuccess: (result) => {
+      if (result.kind === "checkout") {
+        // Leave the SPA for ECPay's cashier; it comes back via /ecpay-result → /app?purchase=…
+        goToCheckout(result.html);
+        return;
+      }
+      const saved = result.subscription;
+      upsert(saved);
       const plan = PLANS.find((p) => p.route === saved.route);
-      toast.success(`${plan?.label ?? saved.route} 追蹤中`, {
+      toast.success(`${plan?.label ?? saved.route} 目標價已更新`, {
         description: `目標價 ${formatTwd(saved.target_price)}，達標就寄信給你。`,
       });
     },
-    onError: (err: Error) => toast.error("儲存失敗", { description: err.message }),
+    onError: (err: Error) => toast.error("送出失敗", { description: err.message }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: cancelSubscription,
+    onSuccess: (saved, route) => {
+      if (saved) upsert(saved);
+      void queryClient.invalidateQueries({ queryKey: subscriptionsKey });
+      const label = PLANS.find((p) => p.route === route)?.label ?? route;
+      toast.success(`已取消 ${label} 的訂閱`, {
+        description: saved?.current_period_end_date
+          ? `不會再扣款，降價通知持續到 ${saved.current_period_end_date}。`
+          : "不會再扣款。",
+      });
+    },
+    onError: (err: Error) => toast.error("取消失敗", { description: err.message }),
   });
 
   async function handleSignOut() {
@@ -56,6 +134,8 @@ export function Dashboard() {
     await supabase.auth.signOut();
     navigate("/sign-in", { replace: true });
   }
+
+  const priceText = monthlyPrice ? `${formatTwd(monthlyPrice)}/月` : "月費";
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -81,9 +161,17 @@ export function Dashboard() {
             className="animate-fade-up mt-3 max-w-2xl text-muted-foreground"
             style={{ animationDelay: "60ms" }}
           >
-            選一條航線、設定目標價。下個月的來回最低價一旦達標，我們就寄信到{" "}
+            選一條航線、設定目標價，每條航線 {priceText}
+            。付款後，下個月的來回最低價一旦達標，我們就寄信到{" "}
             <span className="font-medium text-foreground">{email}</span>。
           </p>
+
+          {awaiting && (
+            <div className="mt-6 flex max-w-2xl items-center gap-3 rounded-xl border border-primary/40 bg-card/80 px-5 py-4 text-sm">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              <span>正在確認綠界付款結果…</span>
+            </div>
+          )}
 
           {subscriptionsQuery.isError && (
             <div className="mt-6 flex max-w-2xl items-center justify-between gap-4 rounded-xl border border-destructive/40 bg-card/80 px-5 py-4 text-sm">
@@ -104,18 +192,17 @@ export function Dashboard() {
               <PlanCard
                 key={plan.planName}
                 plan={plan}
-                subscription={subscriptionsQuery.data?.find((s) => s.route === plan.route)}
+                subscription={subscriptions?.find((s) => s.route === plan.route)}
+                monthlyPrice={monthlyPrice}
                 saving={
                   saveMutation.isPending && saveMutation.variables?.plan_name === plan.planName
                 }
+                cancelling={cancelMutation.isPending && cancelMutation.variables === plan.route}
                 disabled={subscriptionsQuery.isPending}
                 onSubmit={(targetPrice) =>
-                  saveMutation.mutate({
-                    email,
-                    plan_name: plan.planName,
-                    target_price: targetPrice,
-                  })
+                  saveMutation.mutate({ plan_name: plan.planName, target_price: targetPrice })
                 }
+                onCancel={() => cancelMutation.mutate(plan.route)}
               />
             ))}
           </div>

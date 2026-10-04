@@ -78,7 +78,7 @@ export function Landing() {
             >
               <Button asChild size="lg" className="h-12 px-7 text-base shadow-glow">
                 <Link to="/sign-up">
-                  免費開始 / Get started <ArrowRight className="size-4" />
+                  開始使用 / Get started <ArrowRight className="size-4" />
                 </Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="h-12 px-7 text-base">
