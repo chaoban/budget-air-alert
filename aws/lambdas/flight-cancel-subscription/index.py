@@ -1,11 +1,8 @@
-"""flight-save-subscription (POST /subscribe) - M2.
-
-- active, or cancelled but still inside the paid period -> update target_price in place, JSON response.
-- anything else (new / pending_payment / expired / legacy M1 row) -> subscription_status = pending_payment,
-  new MerchantTradeNo, and an ECPay 信用卡定期定額 auto-submit form (text/html) the browser posts to the cashier.
-Callbacks (flight-ecpay-return / -period) are the only writers of `active`.
+"""flight-cancel-subscription (POST /cancel) - stop renewals via ECPay CreditCardPeriodAction (Action=Cancel).
+active -> cancelled (grace: keeps current_period_end, still alerted until then) + {event_type: "cancel"}.
+pending_payment (never paid) -> expired. Already cancelled/expired -> no-op.
 """
-# Built from m2/src/common.py + m2/src/save_subscription.py (single-file index.handler)
+# Built from m2/src/common.py + m2/src/cancel_subscription.py (single-file index.handler)
 # ===== shared helpers (folded into every M2 Lambda at build time; stdlib + boto3 only) =====
 import base64
 import calendar
@@ -169,100 +166,87 @@ def http_body(event):
     return json.loads(raw or "{}")
 # ===== end shared helpers =====
 
-import html
-import secrets
-import string
+import time
+from botocore.exceptions import ClientError
 
 TABLE = boto3.resource("dynamodb").Table("subscriptions")
-API_BASE = os.environ.get("API_BASE_URL", "").strip().rstrip("/")
-SITE_URL = os.environ.get("SITE_URL", "https://budget-air-alert.vercel.app").strip().rstrip("/")
-PERIOD_TYPE = os.environ.get("PERIOD_TYPE", "M").strip()          # D only for the renewal test
-FREQUENCY = int(os.environ.get("FREQUENCY", "1"))
-EXEC_TIMES = int(os.environ.get("EXEC_TIMES", "999"))
-ALNUM = string.ascii_uppercase + string.digits
+_sqs = boto3.client("sqs")
+STATUS_QUEUE = os.environ.get("STATUS_QUEUE_NAME", "flight-status-queue")
 
 
-def _trade_no():
-    # <= 20 chars, alphanumeric, unique: FP + yymmddHHMMSS + 6 random
-    return "FP" + datetime.now(TPE_TZ).strftime("%y%m%d%H%M%S") + "".join(secrets.choice(ALNUM) for _ in range(6))
+def _qurl():
+    if "qurl" not in _cache:
+        _cache["qurl"] = _sqs.get_queue_url(QueueName=STATUS_QUEUE)["QueueUrl"]
+    return _cache["qurl"]
 
 
-def _in_grace(item, now_s):
-    return item.get("subscription_status") == "cancelled" and str(item.get("current_period_end", "")) >= now_s
-
-
-def checkout_form(cfg, mtn, email, route, plan_name):
-    amount = str(int(Decimal(str(cfg["amount"]))))
-    params = {
-        "MerchantID": cfg["merchant_id"], "MerchantTradeNo": mtn,
-        "MerchantTradeDate": datetime.now(TPE_TZ).strftime("%Y/%m/%d %H:%M:%S"),
-        "PaymentType": "aio", "ChoosePayment": "Credit", "EncryptType": "1",
-        "TotalAmount": amount, "PeriodAmount": amount,
-        "PeriodType": PERIOD_TYPE, "Frequency": str(FREQUENCY), "ExecTimes": str(EXEC_TIMES),
-        "TradeDesc": "Flight Price Notifier monthly plan",
-        "ItemName": "Flight Price Notifier %s monthly plan" % route,
-        "ReturnURL": API_BASE + "/ecpay-return",
-        "PeriodReturnURL": API_BASE + "/ecpay-period",
-        "OrderResultURL": API_BASE + "/ecpay-result",
-        "ClientBackURL": SITE_URL + "/app",
-        "CustomField1": email, "CustomField2": route, "CustomField3": plan_name,
-    }
+def ecpay_cancel(cfg, mtn):
+    params = {"MerchantID": cfg["merchant_id"], "MerchantTradeNo": mtn, "Action": "Cancel",
+              "TimeStamp": str(int(time.time()))}
     params["CheckMacValue"] = gen_cmv(params, cfg["hash_key"], cfg["hash_iv"])
-    action = "https://%s/Cashier/AioCheckOut/V5" % ecpay_host(cfg)
-    inputs = "\n".join('<input type="hidden" name="%s" value="%s">' % (html.escape(k), html.escape(str(v)))
-                       for k, v in params.items())
-    return ('<!doctype html><html><head><meta charset="utf-8"><title>前往綠界付款…</title></head>'
-            '<body><p style="font-family:sans-serif">正在前往綠界付款頁面…</p>'
-            '<form id="ecpay" action="%s" method="post">\n%s\n</form>'
-            '<script>document.forms[0].submit()</script></body></html>') % (html.escape(action), inputs)
+    req = urllib.request.Request("https://%s/Cashier/CreditCardPeriodAction" % ecpay_host(cfg),
+                                 data=urllib.parse.urlencode(params).encode(), method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            body = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as ex:
+        body = "HTTP %s %s" % (ex.code, ex.read().decode("utf-8", "replace")[:300])
+    except (urllib.error.URLError, TimeoutError) as ex:
+        body = "network error %s" % ex
+    res = {k: v[0] for k, v in urllib.parse.parse_qs(body, keep_blank_values=True).items()}
+    return res.get("RtnCode"), res.get("RtnMsg") or body[:300]
 
 
 def handler(event, context):
     try:
         email = caller_email(event)
+        data = http_body(event)
     except AuthError as ex:
         return resp_json(401, {"error": "請先登入 / sign in required", "detail": str(ex)})
-    try:
-        data = http_body(event)
     except (ValueError, TypeError):
         return resp_json(400, {"error": "invalid JSON body"})
-
-    plan_name = str(data.get("plan_name", "")).strip().lower()
-    if plan_name not in PLANS:
-        return resp_json(400, {"error": "plan_name must be one of " + ", ".join(PLANS)})
-    try:
-        tp = Decimal(str(data.get("target_price"))).to_integral_value()
-        if not tp.is_finite() or tp <= 0 or tp > 1000000:
-            raise ValueError
-    except Exception:
-        return resp_json(400, {"error": "target_price must be between 1 and 1,000,000 TWD"})
-
-    plan = PLANS[plan_name]
-    route = plan["origin"] + "-" + plan["destination"]
-    now_s = ts(utcnow())
+    route = str(data.get("route", "")).strip().upper()
+    if route not in ROUTE_LABEL:
+        return resp_json(400, {"error": "unknown route"})
     key = {"email": email, "route": route}
-    item = TABLE.get_item(Key=key).get("Item") or {}
+    item = TABLE.get_item(Key=key).get("Item")
+    if not item:
+        return resp_json(404, {"error": "subscription not found"})
     status = item.get("subscription_status")
+    now = utcnow()
 
-    if status == "active" or _in_grace(item, now_s):
-        # paid (or paid-through) subscriber: change the target in place - no re-payment, status untouched
-        out = TABLE.update_item(Key=key, UpdateExpression="SET target_price=:t, updated_at=:n",
-                                ConditionExpression="subscription_status = :s",
-                                ExpressionAttributeValues={":t": tp, ":n": now_s, ":s": status},
-                                ReturnValues="ALL_NEW")["Attributes"]
-        print("target updated in place", email, route, int(tp), "status", status)
-        return resp_json(200, {"ok": True, "updated": True, "subscription": to_json(out)})
+    if status in ("cancelled", "expired"):
+        return resp_json(200, {"ok": True, "unchanged": True, "subscription": to_json(item)})
 
     cfg = ecpay_cfg()
-    mtn = _trade_no()
-    TABLE.update_item(
-        Key=key,
-        UpdateExpression=("SET plan_name=:p, origin=:o, destination=:d, target_price=:t, currency=:c, "
-                          "subscription_status=:s, merchant_trade_no=:m, period_type=:pt, period_frequency=:pf, "
-                          "amount=:a, updated_at=:n, created_at=if_not_exists(created_at,:n)"),
-        ExpressionAttributeValues={":p": plan_name, ":o": plan["origin"], ":d": plan["destination"], ":t": tp,
-                                   ":c": "TWD", ":s": "pending_payment", ":m": mtn, ":pt": PERIOD_TYPE,
-                                   ":pf": FREQUENCY, ":a": Decimal(str(cfg["amount"])), ":n": now_s})
-    print("pending_payment", email, route, "target", int(tp), "MerchantTradeNo", mtn, "previous status", status)
-    return {"statusCode": 200, "headers": {"content-type": "text/html; charset=utf-8"},
-            "body": checkout_form(cfg, mtn, email, route, plan_name)}
+    code, msg = (None, "no merchant_trade_no")
+    if item.get("merchant_trade_no"):
+        code, msg = ecpay_cancel(cfg, item["merchant_trade_no"])
+    # 90100150 (unknown order) on a never-paid / synthetic order is expected: log it and still cancel locally
+    print("CreditCardPeriodAction Cancel", key, item.get("merchant_trade_no"), "->", code, msg)
+
+    if status != "active":  # pending_payment or legacy M1 row: nothing was paid, so no grace period
+        out = TABLE.update_item(Key=key, UpdateExpression="SET subscription_status=:x, cancelled_at=:n, updated_at=:n",
+                                ExpressionAttributeValues={":x": "expired", ":n": ts(now)}, ReturnValues="ALL_NEW")
+        return resp_json(200, {"ok": True, "subscription": to_json(out["Attributes"]), "ecpay": {"code": code, "msg": msg}})
+
+    end = item.get("current_period_end") or ts(add_period(now, "M", 1))  # migration fallback
+    try:
+        out = TABLE.update_item(
+            Key=key,
+            UpdateExpression=("SET subscription_status=:c, current_period_end=:e, current_period_end_date=:ed, "
+                              "cancelled_at=:n, ecpay_cancel_rtn=:r, updated_at=:n"),
+            ConditionExpression="subscription_status = :a",
+            ExpressionAttributeValues={":c": "cancelled", ":e": end, ":ed": tpe_date(end), ":n": ts(now),
+                                       ":r": "%s %s" % (code, msg), ":a": "active"},
+            ReturnValues="ALL_NEW")["Attributes"]
+    except ClientError as ex:
+        if ex.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
+        return resp_json(200, {"ok": True, "unchanged": True})
+    print("CANCELLED (grace until %s)" % end, key)
+    _sqs.send_message(QueueUrl=_qurl(), MessageBody=json.dumps({
+        "event_type": "cancel", "email": email, "route": route, "merchant_trade_no": item.get("merchant_trade_no", ""),
+        "target_price": int(item.get("target_price", 0)), "current_period_end": end}, ensure_ascii=False))
+    return resp_json(200, {"ok": True, "subscription": to_json(out), "ecpay": {"code": code, "msg": msg}})

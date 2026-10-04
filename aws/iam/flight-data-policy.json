@@ -31,23 +31,29 @@
    "Resource": "arn:aws:s3:::flight-config-787712140444/*"
   },
   {
-   "Sid": "FareQueueProducer",
+   "Sid": "QueueProducers",
    "Effect": "Allow",
    "Action": [
     "sqs:SendMessage",
     "sqs:GetQueueUrl"
    ],
-   "Resource": "arn:aws:sqs:us-east-1:787712140444:flight-fare-queue"
+   "Resource": [
+    "arn:aws:sqs:us-east-1:787712140444:flight-fare-queue",
+    "arn:aws:sqs:us-east-1:787712140444:flight-status-queue"
+   ]
   },
   {
-   "Sid": "FareQueueConsumer",
+   "Sid": "QueueConsumers",
    "Effect": "Allow",
    "Action": [
     "sqs:ReceiveMessage",
     "sqs:DeleteMessage",
     "sqs:GetQueueAttributes"
    ],
-   "Resource": "arn:aws:sqs:us-east-1:787712140444:flight-fare-queue"
+   "Resource": [
+    "arn:aws:sqs:us-east-1:787712140444:flight-fare-queue",
+    "arn:aws:sqs:us-east-1:787712140444:flight-status-queue"
+   ]
   },
   {
    "Sid": "FanOut",
