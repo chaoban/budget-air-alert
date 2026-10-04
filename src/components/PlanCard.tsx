@@ -43,7 +43,7 @@ const BADGE: Record<SubscriptionStatus, { label: string; className: string; icon
     icon: <CheckCircle2 className="size-3.5" />,
   },
   pending_payment: {
-    label: "未完成付款",
+    label: "尚未付款",
     className: "bg-amber-100 text-amber-900 ring-1 ring-amber-300",
     icon: <Clock className="size-3.5" />,
   },
@@ -119,10 +119,10 @@ export function PlanCard({
       description = (
         <>
           目標價 <Strong>{formatTwd(subscription!.target_price)}</Strong>
-          。還沒完成付款，付款後才會開始寄降價通知。
+          。尚未付款，付款後才會開始寄降價通知。
         </>
       );
-      action = { label: "完成付款", icon: <CreditCard className="size-4" /> };
+      action = { label: "前往付款", icon: <CreditCard className="size-4" /> };
       break;
     case "expired":
       description = <>這個訂閱已經結束，不會再寄通知。重新訂閱並付款後恢復。</>;

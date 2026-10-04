@@ -63,7 +63,7 @@ export function Dashboard() {
       if (route) setAwaiting({ route, since: Date.now() });
     } else {
       toast.error(`${label} 付款未完成`, {
-        description: "沒有扣款。可以再按一次「完成付款」重試。",
+        description: "沒有扣款。可以再按一次「前往付款」重試。",
       });
     }
     const next = new URLSearchParams(searchParams);
