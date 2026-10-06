@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FeatureCard } from "@/components/FeatureCard";
+import { PricingSection } from "@/components/PricingSection";
 import { FadeIn } from "@/components/FadeIn";
 import { InkBranch, InkLeaf } from "@/components/InkBranch";
 import { usePageMeta } from "@/hooks/usePageMeta";
@@ -107,6 +108,8 @@ export function Landing() {
           </div>
         </section>
 
+        <PricingSection />
+
         {/* CTA */}
         <section className="mx-auto max-w-6xl px-5 pb-24">
           <FadeIn>
@@ -120,7 +123,7 @@ export function Landing() {
                 準備好用預算內的價格飛了嗎？
               </h2>
               <p className="mx-auto mt-3 max-w-md text-muted-foreground">
-                建立帳號，下一個里程碑就能開始追蹤你的航線。
+                建立帳號、選擇航線並設定目標價，就能開始追蹤。
               </p>
               <Button asChild size="lg" className="mt-8 h-12 px-7 text-base shadow-glow">
                 <Link to="/sign-up">建立帳號 / Sign up</Link>
