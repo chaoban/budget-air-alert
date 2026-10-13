@@ -1,6 +1,9 @@
 """flight-cancel-subscription (POST /cancel) - stop renewals via ECPay CreditCardPeriodAction (Action=Cancel).
 active -> cancelled (grace: keeps current_period_end, still alerted until then) + {event_type: "cancel"}.
 pending_payment (never paid) -> expired. Already cancelled/expired -> no-op.
+env=prod: an active row is only cancelled once ECPay confirms no further charge (Cancel RtnCode 1, or
+QueryCreditCardPeriodInfo ExecStatus 0 已終止 / 2 執行完成); otherwise 502 and the row stays active.
+env=stage keeps the M2 behaviour (synthetic test orders answer 90100150 and are still cancelled locally).
 """
 import time
 from botocore.exceptions import ClientError
@@ -34,6 +37,36 @@ def ecpay_cancel(cfg, mtn):
     return res.get("RtnCode"), res.get("RtnMsg") or body[:300]
 
 
+def ecpay_period_status(cfg, mtn):
+    """QueryCreditCardPeriodInfo -> ExecStatus as str ('0' 已終止 / '1' 執行中 / '2' 執行完成), None if unknown."""
+    params = {"MerchantID": cfg["merchant_id"], "MerchantTradeNo": mtn, "TimeStamp": str(int(time.time()))}
+    params["CheckMacValue"] = gen_cmv(params, cfg["hash_key"], cfg["hash_iv"])
+    req = urllib.request.Request("https://%s/Cashier/QueryCreditCardPeriodInfo" % ecpay_host(cfg),
+                                 data=urllib.parse.urlencode(params).encode(), method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, TimeoutError, ValueError) as ex:
+        print("QueryCreditCardPeriodInfo failed", mtn, ex)
+        return None
+    st = data.get("ExecStatus") if isinstance(data, dict) else None
+    return None if st is None else str(st)
+
+
+def stop_confirmed(cfg, mtn, code):
+    """True when ECPay will not charge this order again."""
+    if code == "1":
+        return True
+    if cfg.get("env") != "prod":
+        return True  # stage: synthetic orders answer 90100150 - keep the M2 behaviour
+    if not mtn:
+        return False
+    st = ecpay_period_status(cfg, mtn)
+    print("QueryCreditCardPeriodInfo", mtn, "ExecStatus", st)
+    return st in ("0", "2")
+
+
 def handler(event, context):
     try:
         email = caller_email(event)
@@ -59,8 +92,12 @@ def handler(event, context):
     code, msg = (None, "no merchant_trade_no")
     if item.get("merchant_trade_no"):
         code, msg = ecpay_cancel(cfg, item["merchant_trade_no"])
-    # 90100150 (unknown order) on a never-paid / synthetic order is expected: log it and still cancel locally
+    # never-paid / synthetic orders answer 90100150 (unknown order): fine for pending rows and on stage
     print("CreditCardPeriodAction Cancel", key, item.get("merchant_trade_no"), "->", code, msg)
+    if status == "active" and not stop_confirmed(cfg, item.get("merchant_trade_no"), code):
+        print("CANCEL REFUSED - ECPay did not confirm the stop; row stays active", key)
+        return resp_json(502, {"error": "綠界沒有確認停止扣款，訂閱維持不變。請稍後再試；持續失敗請聯絡我們。",
+                               "ecpay": {"code": code, "msg": msg}})
 
     if status != "active":  # pending_payment or legacy M1 row: nothing was paid, so no grace period
         out = TABLE.update_item(Key=key, UpdateExpression="SET subscription_status=:x, cancelled_at=:n, updated_at=:n",
@@ -84,5 +121,6 @@ def handler(event, context):
     print("CANCELLED (grace until %s)" % end, key)
     _sqs.send_message(QueueUrl=_qurl(), MessageBody=json.dumps({
         "event_type": "cancel", "email": email, "route": route, "merchant_trade_no": item.get("merchant_trade_no", ""),
-        "target_price": int(item.get("target_price", 0)), "current_period_end": end}, ensure_ascii=False))
+        "target_price": int(item.get("target_price", 0)), "current_period_end": end, "env": cfg.get("env", "")},
+        ensure_ascii=False))
     return resp_json(200, {"ok": True, "subscription": to_json(out), "ecpay": {"code": code, "msg": msg}})

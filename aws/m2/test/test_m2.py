@@ -1,4 +1,5 @@
 import importlib.util, json, os, sys, urllib.parse, io
+import html as html_mod
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
@@ -115,6 +116,8 @@ with mock_aws():
     r = ret.handler(form_event(signed(cb)), None)
     msgs = drain(qs)
     check(r["body"] == "1|OK" and len(msgs) == 1 and msgs[0]["event_type"] == "welcome", "resend of same callback -> no second welcome")
+    check(msgs[0]["env"] == "stage" and msgs[0]["ecpay_trade_no"] == "2610041200001" and msgs[0]["trade_amt"] == "300"
+          and msgs[0]["paid_at"] == "2026/10/04 12:00:00", "welcome message carries env / TradeNo / TradeAmt / PaymentDate (owner notice)")
 
     print("[save in place / cancel / grace]")
     r = save.handler({"email": "me@example.com", "plan_name": "tokyo", "target_price": 9000}, None)
@@ -128,10 +131,45 @@ with mock_aws():
     r = canc.handler({"email": "me@example.com", "route": "TPE-TYO"}, None)
     msgs = drain(qs)
     check(json.loads(r["body"]).get("unchanged") and len(msgs) == 1 and msgs[0]["event_type"] == "cancel", "second cancel is a no-op, one cancel message")
+    check(msgs[0]["env"] == "stage", "cancel message carries env (owner notice)")
     r = save.handler({"email": "me@example.com", "plan_name": "tokyo", "target_price": 8000}, None)
     check(r["headers"]["content-type"] == "application/json" and int(T.get_item(Key={"email": "me@example.com", "route": "TPE-TYO"})["Item"]["target_price"]) == 8000, "cancelled-in-grace can update target in place")
     r = canc.handler({"requestContext": {}, "headers": {}, "body": json.dumps({"route": "TPE-TYO"})}, None)
     check(r["statusCode"] == 401, "HTTP cancel without token -> 401")
+
+    print("[cancel on env=prod: ECPay must confirm the stop]")
+    cp = load("flight-cancel-subscription")
+    cp._cache["flight/ecpay"] = dict(CFG, env="prod")
+    pend = (datetime.now(timezone.utc) + timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def active_row(email, mtn):
+        T.put_item(Item={"email": email, "route": "TPE-SEL", "target_price": Decimal(9000), "subscription_status": "active",
+                         "merchant_trade_no": mtn, "current_period_end": pend})
+
+    def prod_cancel(email, rtn, exec_status):
+        queried = []
+        cp.ecpay_cancel = lambda cfg, mtn: rtn
+        cp.ecpay_period_status = lambda cfg, mtn: queried.append(mtn) or exec_status
+        r = cp.handler({"email": email, "route": "TPE-SEL"}, None)
+        return r, T.get_item(Key={"email": email, "route": "TPE-SEL"})["Item"]["subscription_status"], drain(qs), queried
+
+    active_row("p1@x.com", "FPPROD1")
+    r, st_, msgs, q = prod_cancel("p1@x.com", ("10100050", "Cancel failed"), "1")
+    check(r["statusCode"] == 502 and st_ == "active" and msgs == [] and q == ["FPPROD1"],
+          "prod: Cancel not 1 + ExecStatus 1 (still running) -> 502, row stays active, no cancel mail")
+    r, st_, msgs, q = prod_cancel("p1@x.com", (None, "network error timed out"), None)
+    check(r["statusCode"] == 502 and st_ == "active" and msgs == [], "prod: network error + query unknown -> 502, stays active")
+    r, st_, msgs, q = prod_cancel("p1@x.com", ("10100050", "already stopped"), "0")
+    check(r["statusCode"] == 200 and st_ == "cancelled" and len(msgs) == 1, "prod: Cancel not 1 but ExecStatus 0 (已終止) -> cancelled")
+    active_row("p2@x.com", "FPPROD2")
+    r, st_, msgs, q = prod_cancel("p2@x.com", ("1", "停用成功"), "1")
+    check(r["statusCode"] == 200 and st_ == "cancelled" and len(msgs) == 1 and q == [], "prod: Cancel RtnCode 1 -> cancelled without querying")
+    T.put_item(Item={"email": "p3@x.com", "route": "TPE-SEL", "target_price": Decimal(9000),
+                     "subscription_status": "pending_payment", "merchant_trade_no": "FPPROD3"})
+    r, st_, msgs, q = prod_cancel("p3@x.com", ("10100058", "90100150 不存在的訂單編號"), None)
+    check(r["statusCode"] == 200 and st_ == "expired" and msgs == [], "prod: unpaid row still expires locally on unknown order")
+    for e in ("p1@x.com", "p2@x.com", "p3@x.com"):
+        T.delete_item(Key={"email": e, "route": "TPE-SEL"})
 
     print("[parser gate]")
     now = datetime.now(timezone.utc); f = "%Y-%m-%dT%H:%M:%SZ"
@@ -176,6 +214,7 @@ with mock_aws():
 
     print("[ecpay_period]")
     per = load("flight-ecpay-period")
+    drain(qs)
     T.put_item(Item={"email": "r@x.com", "route": "TPE-LON", "subscription_status": "active", "merchant_trade_no": "FPTEST1",
                      "current_period_end": (now + timedelta(hours=1)).strftime(f), "total_success_times": 1, "period_type": "M", "period_frequency": 1})
     pc = {"MerchantID": "3002607", "MerchantTradeNo": "FPTEST1", "StoreID": "", "RtnCode": "1", "RtnMsg": "交易成功", "PeriodType": "M",
@@ -186,12 +225,28 @@ with mock_aws():
     check(e1 > (now + timedelta(days=27)).strftime(f) and e1.endswith("T15:59:59Z"), "renewal extends current_period_end by a month, to 23:59:59 Taipei (%s)" % e1)
     per.handler(form_event(signed(pc)), None)
     check(T.get_item(Key={"email": "r@x.com", "route": "TPE-LON"})["Item"]["current_period_end"] == e1, "renewal resend does not extend twice")
+    msgs = drain(qs)
+    check(len(msgs) == 1 and msgs[0]["event_type"] == "renewed" and msgs[0]["charge_no"] == 2 and msgs[0]["current_period_end"] == e1
+          and msgs[0]["amount"] == "300" and msgs[0]["env"] == "stage" and msgs[0]["status"] == "active",
+          "renewal -> one 'renewed' owner notice (the resend adds none)")
     fail = dict(pc); fail["RtnCode"] = "10100248"; fail["RtnMsg"] = "拒絕交易"
     for i in range(5):
         per.handler(form_event(signed(fail)), None)
     check(T.get_item(Key={"email": "r@x.com", "route": "TPE-LON"})["Item"]["subscription_status"] == "active", "5 failed renewals -> still active")
     per.handler(form_event(signed(fail)), None)
     check(T.get_item(Key={"email": "r@x.com", "route": "TPE-LON"})["Item"]["subscription_status"] == "expired", "6th consecutive failure -> expired")
+    msgs = drain(qs)
+    check([m["fails"] for m in msgs] == [1, 2, 3, 4, 5, 6] and [m["expired"] for m in msgs] == [False] * 5 + [True]
+          and all(m["event_type"] == "renewal_failed" and m["rtn_msg"] == "拒絕交易" and m["max_fails"] == 6 for m in msgs),
+          "each failed renewal -> 'renewal_failed' owner notice, the 6th flagged expired")
+    T.put_item(Item={"email": "r2@x.com", "route": "TPE-LON", "subscription_status": "active", "merchant_trade_no": "FPTEST2",
+                     "current_period_end": (now + timedelta(hours=1)).strftime(f), "total_success_times": 1, "period_type": "M", "period_frequency": 1})
+    real_send = per._sqs.send_message
+    per._sqs.send_message = lambda **kw: (_ for _ in ()).throw(RuntimeError("sqs down"))
+    r = per.handler(form_event(signed(dict(pc, MerchantTradeNo="FPTEST2", CustomField1="r2@x.com"))), None)
+    per._sqs.send_message = real_send
+    check(r["body"] == "1|OK" and T.get_item(Key={"email": "r2@x.com", "route": "TPE-LON"})["Item"]["total_success_times"] == 2,
+          "queue down: renewal still recorded and ECPay still gets 1|OK")
 
     print("[ecpay_result / list]")
     res = load("flight-ecpay-result")
@@ -233,5 +288,77 @@ with mock_aws():
     open(os.path.join(BUILD, "cancel.html"), "w").write("<meta charset=utf-8>" + h)
     s, h, t = st.render(welcome)
     open(os.path.join(BUILD, "welcome.html"), "w").write("<meta charset=utf-8>" + h)
+
+    print("[owner (admin) notices]")
+    rn = {"event_type": "renewed", "email": "r@x.com", "route": "TPE-LON", "merchant_trade_no": "FPTEST1", "charge_no": 2,
+          "amount": "300", "current_period_end": "2026-12-04T15:59:59Z", "status": "active", "paid_at": "2026/11/04 10:00:00", "env": "prod"}
+    sent.clear()
+    st.send = lambda to, s, h, t: (sent.append((to, s)) or (200, {"id": "a%d" % len(sent)}))
+    out = st.handler({"Records": [rec(rn, 9)]}, None)
+    check(out["batchItemFailures"] == [] and sent == [], "no admin_to in flight/resend -> owner notice skipped quietly")
+    sm.put_secret_value(SecretId="flight/resend", SecretString=json.dumps(
+        {"api_key": "re_x", "from": "onboarding@resend.dev", "admin_to": "boss@example.com"}))
+    st._cache.pop("flight/resend", None)
+    w2 = dict(welcome, email="new@example.com", merchant_trade_no="FPADMIN1", env="stage", ecpay_trade_no="2610070000001",
+              trade_amt="300", paid_at="2026/10/07 10:00:00")
+    st.handler({"Records": [rec(w2, 10), rec(w2, 11)]}, None)
+    check([to for to, _ in sent] == ["new@example.com", ["boss@example.com"]], "welcome -> subscriber mail + one owner copy (redelivery adds none)")
+    check(sent[1][1] == "[測試] 🔔 新訂閱：台北 → 東京｜new@example.com｜NT$300", "owner subject: [測試] + route + member + amount")
+    sent.clear()
+    st.handler({"Records": [rec(rn, 12), rec(rn, 13)]}, None)
+    check(len(sent) == 1 and sent[0][0] == ["boss@example.com"] and sent[0][1] == "💰 續扣成功（第 2 期）：台北 → 倫敦｜r@x.com",
+          "renewed -> owner only, once; prod has no [測試] tag")
+    sent.clear()
+    st.handler({"Records": [rec(dict(rn, charge_no=3), 14)]}, None)
+    check(len(sent) == 1 and "第 3 期" in sent[0][1], "the next charge is a new notice")
+    s, h, t = st.render_admin(dict(rn, status="cancelled"))
+    check(s.startswith("⚠️ 已取消的訂閱被續扣（第 2 期）") and "仍然扣款" in h and t.startswith("⚠️"),
+          "renewal on a cancelled row -> flagged subject + refund warning in the notice")
+    rf = {"event_type": "renewal_failed", "email": "r@x.com", "route": "TPE-LON", "merchant_trade_no": "FPTEST1", "fails": 2,
+          "max_fails": 6, "expired": False, "rtn_code": "10100248", "rtn_msg": "拒絕交易", "current_period_end": "2026-12-04T15:59:59Z",
+          "paid_at": "2026/12/04 10:00:00", "env": "stage"}
+    sent.clear()
+    st.handler({"Records": [rec(rf, 15), rec(dict(rf, fails=6, expired=True), 16)]}, None)
+    check([s for _, s in sent] == ["[測試] ⚠️ 續扣失敗（連續第 2 次）：台北 → 倫敦｜r@x.com",
+                                   "[測試] ⛔ 續扣連續失敗 6 次，訂閱已終止：台北 → 倫敦｜r@x.com"], "renewal_failed -> owner notice; the 6th says terminated")
+    sent.clear()
+    st.handler({"Records": [rec(cm, 17)]}, None)
+    check(len(sent) == 1 and sent[0][0] == ["boss@example.com"] and sent[0][1].startswith("[測試] 👋 取消訂閱：台北 → 東京"),
+          "cancel redelivered after admin_to was added -> owner copy only, subscriber mail not repeated")
+
+    def flaky(to, s, h, t):
+        if isinstance(to, list):
+            return 500, "boom"
+        sent.append((to, s)); return 200, {"id": "z"}
+    w3 = dict(w2, email="new2@example.com", merchant_trade_no="FPADMIN2")
+    sent.clear(); st.send = flaky
+    out = st.handler({"Records": [rec(w3, 18)]}, None)
+    check(out["batchItemFailures"] == [{"itemIdentifier": "18"}] and [to for to, _ in sent] == ["new2@example.com"],
+          "owner mail 5xx -> SQS retry; the subscriber mail already went out")
+    st.send = lambda to, s, h, t: (sent.append((to, s)) or (200, {"id": "w"}))
+    out = st.handler({"Records": [rec(w3, 19)]}, None)
+    check(out["batchItemFailures"] == [] and [to for to, _ in sent] == ["new2@example.com", ["boss@example.com"]],
+          "retry -> owner mail sent, subscriber mail NOT sent twice")
+
+    def flaky2(to, s, h, t):
+        if not isinstance(to, list):
+            return 429, "rate"
+        sent.append((to, s)); return 200, {"id": "q"}
+    sent.clear(); st.send = flaky2
+    out = st.handler({"Records": [rec(dict(w2, email="new3@example.com", merchant_trade_no="FPADMIN3"), 20)]}, None)
+    check(out["batchItemFailures"] == [{"itemIdentifier": "20"}] and [to for to, _ in sent] == [["boss@example.com"]],
+          "subscriber 429 does not hold back the owner copy")
+    sent.clear(); st.send = lambda to, s, h, t: (sent.append((to, s)) or (200, {"id": "u"}))
+    out = st.handler({"Records": [rec({"event_type": "weird", "email": "a@x.com", "route": "TPE-TYO"}, 21)]}, None)
+    check(out["batchItemFailures"] == [] and sent == [], "unknown event_type still dropped")
+    sm.put_secret_value(SecretId="flight/resend", SecretString=json.dumps(
+        {"api_key": "re_x", "from": "onboarding@resend.dev", "admin_to": "boss@example.com, ops@example.com, not-an-email"}))
+    st._cache.pop("flight/resend", None)
+    check(st.admin_recipients() == ["boss@example.com", "ops@example.com"], "admin_to: comma-separated, invalid entries ignored")
+    for name, m in (("admin-welcome", w2), ("admin-renewed", rn), ("admin-renewal-failed", dict(rf, fails=6, expired=True)),
+                    ("admin-cancel", cm), ("admin-renewed-after-cancel", dict(rn, status="cancelled"))):
+        s, h, t = st.render_admin(m)
+        open(os.path.join(BUILD, name + ".html"), "w").write("<meta charset=utf-8><title>%s</title>" % html_mod.escape(s) + h)
+        open(os.path.join(BUILD, name + ".txt"), "w").write(s + "\n\n" + t)
 
 print("\nALL OK:", ok, "checks")

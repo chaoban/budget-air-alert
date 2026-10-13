@@ -61,5 +61,6 @@ def handler(event, context):
     _sqs.send_message(QueueUrl=_qurl(), MessageBody=json.dumps({
         "event_type": "welcome", "email": email, "route": route, "merchant_trade_no": mtn,
         "target_price": int(item.get("target_price", 0)), "amount": int(Decimal(str(cfg["amount"]))),
-        "current_period_end": end}, ensure_ascii=False))
+        "current_period_end": end, "env": cfg.get("env", ""), "ecpay_trade_no": p.get("TradeNo", ""),
+        "trade_amt": p.get("TradeAmt", ""), "paid_at": p.get("PaymentDate", "")}, ensure_ascii=False))
     return resp_text("1|OK")

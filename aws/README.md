@@ -44,6 +44,11 @@ pending_payment ──ReturnURL RtnCode=1──▶ active ──/cancel──▶
 - Welcome / cancel emails: `flight-status-queue` → `flight-status-notification` → Resend, exactly once per
   `(event, email, route, MerchantTradeNo)` via a conditional claim row in `notification_history`
   (`pk = status#…`, `sent_at = #once`).
+- Owner (admin) notices: the same consumer mails `admin_to` (in `flight/resend`, comma-separated for several)
+  on every payment event — `welcome` (new subscription), `renewed` (charge #n, from `flight-ecpay-period`),
+  `renewal_failed` (consecutive count, `expired` at 6) and `cancel`. Subjects start with `[測試]` unless the
+  producer's `flight/ecpay` `env` is `prod`. Own claim row per mail (`pk = admin#<event>#<email>#<route>#<MTN>#<seq>`),
+  so a retry never re-sends the subscriber's mail. No `admin_to` → admin notices are skipped (logged).
 
 Times are UTC strings `YYYY-MM-DDTHH:MM:SSZ` (compared as strings). A paid period runs **through 23:59:59 Taipei
 on its due date** (`current_period_end` = `…T15:59:59Z`; calendar math on the Taipei date, e.g. 1/31 → 2/28);
@@ -54,7 +59,7 @@ on its due date** (`current_period_end` = `…T15:59:59Z`; calendar math on the 
 - DynamoDB `subscriptions` (email / route) and `notification_history` (pk / sent_at).
 - Secrets Manager: `flight/ecpay` `{merchant_id, hash_key, hash_iv, env, amount}` (stage test merchant,
   `amount` = monthly TWD price, read at checkout and shown in the UI), `flight/supabase`, `flight/travelpayouts`,
-  `flight/resend`.
+  `flight/resend` `{api_key, from, test_to, admin_to}`.
 - IAM: all runtime Lambdas use `flight-lambda-role` with the inline policy in `iam/flight-data-policy.json`.
 
 ## Source, build, test (`m2/`)
@@ -64,7 +69,7 @@ The M2 functions share `m2/src/common.py` (CheckMacValue, ECPay host, time helpe
 
 ```bash
 cd aws/m2
-python3 build.py && python3 test/test_m2.py   # moto tests (49 checks), loads aws/m2/build/
+python3 build.py && python3 test/test_m2.py   # moto tests, loads aws/m2/build/
 python3 build.py ../lambdas                    # refresh aws/lambdas/<function>/index.py
 ```
 
